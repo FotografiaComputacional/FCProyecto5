@@ -69,54 +69,54 @@ function T = get_proy(xy, uv)
 end
 
 function [im2, RU, RV] = warp_img(im, T)
-    % 1) Convertir la imagen a double (valores entre 0 y 1) y hallar su alto N y ancho M
-    im = double(im) / 255;
-    [N, M, ~] = size(im);
-    
-    % 2) Construir los vectores RU y RV con el rango de coordenadas de la imagen en el espacio destino
-    x = [1, M, M, 1];
-    y = [1, 1, N, N];
-    xy = [x; y];
-    
-    uv = aplica_T(xy, T);
-    
-    u_min = floor(min(uv(1,:)));
-    u_max = ceil(max(uv(1,:)));
-    v_min = floor(min(uv(2,:)));
-    v_max = ceil(max(uv(2,:)));
-    
-    RU = u_min:u_max;
-    RV = v_min:v_max;
-    
-    % 3) Reservar memoria para la imagen de salida im2
-    N_new = length(RV);
-    M_new = length(RU);
-    im2 = zeros(N_new, M_new, 3);
+ % 1) Convertir la imagen a double (valores entre 0 y 1) y hallar su alto N y ancho M
+ im = double(im) / 255;
+ [N, M, ~] = size(im);
+ 
+ % 2) Construir los vectores RU y RV con el rango de coordenadas de la imagen en el espacio destino
+ x = [1, M, M, 1];
+ y = [1, 1, N, N];
+ xy = [x; y];
+ 
+ uv = aplica_T(xy, T);
+ 
+ u_min = floor(min(uv(1,:)));
+ u_max = ceil(max(uv(1,:)));
+ v_min = floor(min(uv(2,:)));
+ v_max = ceil(max(uv(2,:)));
+ 
+ RU = u_min:u_max;
+ RV = v_min:v_max;
+ 
+ % 3) Reservar memoria para la imagen de salida im2
+ N_new = length(RV);
+ M_new = length(RU);
+ im2 = zeros(N_new, M_new, 3);
 
-    X = zeros(N_new, M_new);
-    Y = zeros(N_new, M_new);
-    
-    % 4) Calcular T^-1 la matriz inversa de T (para el warping "inverso")
-    T_inv = inv(T);
-    
-    % 5) Hacer un bucle para barrer todas las filas de la imagen destino
-    for k = 1:N_new
-        % a) Crear matriz uv con las coordenadas u y v de esa fila
-        u = RU;
-        v = RV(k) * ones(size(RU));
-        uv = [u; v];
-        % b) Obtener las correspondientes coordenadas xy en la imagen de partida
-        xy = aplica_T(uv, T_inv);
-        % c) Guardar las coordenadas
-        X(k,:) = xy(1,:);
-        Y(k,:) = xy(2,:);
-    end
-    
-    % 6) Usar interp2 para interpolar los valores de la imagen en las coordenadas (X,Y)
-    for c = 1:3
-        im2(:,:,c) = interp2(1:M, 1:N, im(:,:,c), X, Y, 'linear');
-    end
-    end
+ X = zeros(N_new, M_new);
+ Y = zeros(N_new, M_new);
+ 
+ % 4) Calcular T^-1 la matriz inversa de T (para el warping "inverso")
+ T_inv = inv(T);
+ 
+ % 5) Hacer un bucle para barrer todas las filas de la imagen destino
+ for k = 1:N_new
+     % a) Crear matriz uv con las coordenadas u y v de esa fila
+     u = RU;
+     v = RV(k) * ones(size(RU));
+     uv = [u; v];
+     % b) Obtener las correspondientes coordenadas xy en la imagen de partida
+     xy = aplica_T(uv, T_inv);
+     % c) Guardar las coordenadas
+     X(k,:) = xy(1,:);
+     Y(k,:) = xy(2,:);
+ end
+ 
+ % 6) Usar interp2 para interpolar los valores de la imagen en las coordenadas (X,Y)
+ for c = 1:3
+     im2(:,:,c) = interp2(1:M, 1:N, im(:,:,c), X, Y, 'linear');
+ end
+end
 
 
 % ------------------------------------------------------------
@@ -220,3 +220,66 @@ title('Imagen deformada');
 fprintf('Tamaño de la imagen deformada: %d x %d\n', M_def, N_def);
 fprintf('Rango de coordenadas u: [%d, %d]\n', min(RU), max(RU));
 fprintf('Rango de coordenadas v: [%d, %d]\n', min(RV), max(RV));
+
+
+% ------------------------------------------------------------
+% Parte 2
+disp('------------------------ Parte 2 ------------------------')
+% --- Ejemplo de transformaciones no lineales ---
+disp('Ejemplo de transformaciones no lineales')
+
+p = 1.15;
+
+% Paso 1
+im = imread('pano.jpg');
+im = double(im) / 255;
+[N, M, numCanales] = size(im);
+%R = N;
+R=round(N/1);
+
+% Paso 2
+destino = zeros(2*R, 2*R, numCanales);
+X = zeros(2*R, 2*R);
+Y = zeros(2*R, 2*R);
+
+% Paso 3
+for v = 1:2*R
+    for u = 1:2*R
+        u_centrado = u - R;
+        v_centrado = v - R;
+
+        r = sqrt(u_centrado^2 + v_centrado^2);
+        theta = atan2(v_centrado, u_centrado);
+        
+        r_norm = r / (2*R);
+        r_norm = r_norm^p;
+        theta_norm = mod(theta, 2*pi) / (2*pi);
+        
+        x = 1 + theta_norm * (M - 1);
+        y = N - r_norm * (N - 1);
+        
+        X(v, u) = x;
+        Y(v, u) = y;
+    end
+end
+
+% Paso 4
+for c = 1:numCanales
+    destino(:,:,c) = interp2(1:M, 1:N, im(:,:,c), X, Y, 'linear', 0);
+end
+
+% Paso 5
+figure;
+imshow(destino);
+title('Transformacion de Panorama');
+
+
+
+figure;
+subplot(1,2,1);
+imshow(im);
+title('Panorama de Partida');
+
+subplot(1,2,2);
+imshow(destino);
+title('Resultado Final');
