@@ -1,3 +1,4 @@
+
 % ------------------------------------------------------------
 % Funciones
 function T = get_afin(xy, uv)
@@ -66,6 +67,56 @@ function T = get_proy(xy, uv)
     
     T = [a b c; d e f; g h 1];
 end
+
+function [im2, RU, RV] = warp_img(im, T)
+    % 1) Convertir la imagen a double (valores entre 0 y 1) y hallar su alto N y ancho M
+    im = double(im) / 255;
+    [N, M, ~] = size(im);
+    
+    % 2) Construir los vectores RU y RV con el rango de coordenadas de la imagen en el espacio destino
+    x = [1, M, M, 1];
+    y = [1, 1, N, N];
+    xy = [x; y];
+    
+    uv = aplica_T(xy, T);
+    
+    u_min = floor(min(uv(1,:)));
+    u_max = ceil(max(uv(1,:)));
+    v_min = floor(min(uv(2,:)));
+    v_max = ceil(max(uv(2,:)));
+    
+    RU = u_min:u_max;
+    RV = v_min:v_max;
+    
+    % 3) Reservar memoria para la imagen de salida im2
+    N_new = length(RV);
+    M_new = length(RU);
+    im2 = zeros(N_new, M_new, 3);
+
+    X = zeros(N_new, M_new);
+    Y = zeros(N_new, M_new);
+    
+    % 4) Calcular T^-1 la matriz inversa de T (para el warping "inverso")
+    T_inv = inv(T);
+    
+    % 5) Hacer un bucle para barrer todas las filas de la imagen destino
+    for k = 1:N_new
+        % a) Crear matriz uv con las coordenadas u y v de esa fila
+        u = RU;
+        v = RV(k) * ones(size(RU));
+        uv = [u; v];
+        % b) Obtener las correspondientes coordenadas xy en la imagen de partida
+        xy = aplica_T(uv, T_inv);
+        % c) Guardar las coordenadas
+        X(k,:) = xy(1,:);
+        Y(k,:) = xy(2,:);
+    end
+    
+    % 6) Usar interp2 para interpolar los valores de la imagen en las coordenadas (X,Y)
+    for c = 1:3
+        im2(:,:,c) = interp2(1:M, 1:N, im(:,:,c), X, Y, 'linear');
+    end
+    end
 
 
 % ------------------------------------------------------------
@@ -151,3 +202,21 @@ disp('Diferencias entre coordenadas deseadas y obtenidas:');
 disp(dif_uv_proy);
 desv_std_proy = std2(dif_uv_proy(:));
 fprintf('Desviación estándar de las diferencias: %e\n', desv_std_proy);
+
+
+% --- Aplicación de la matriz T de una transformación para deformar una imagen ---
+disp('Aplicación de la matriz T de una transformación para deformar una imagen')
+im = imread('foto.jpg');
+
+T_ejemplo = [3.5 1.2 -1000; 1.0 4.5 -500; 0.0005 0.003 1];
+
+[im_deformada, RU, RV] = warp_img(im, T_ejemplo);
+
+figure;
+imshow(im_deformada);
+title('Imagen deformada');
+
+[N_def, M_def, ~] = size(im_deformada);
+fprintf('Tamaño de la imagen deformada: %d x %d\n', M_def, N_def);
+fprintf('Rango de coordenadas u: [%d, %d]\n', min(RU), max(RU));
+fprintf('Rango de coordenadas v: [%d, %d]\n', min(RV), max(RV));
