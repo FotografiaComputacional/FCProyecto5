@@ -144,6 +144,40 @@ disp(dif_uv);
 desv_std = std2(dif_uv(:));
 fprintf('Desviacion estándar de las diferencias: %e\n', desv_std);
 
+%PARTE NO NECESARIA
+function [xy_n, T] = prepara(xy)
+    x = xy(1,:); 
+    y = xy(2,:);
+    mx = mean(x);
+    my = mean(y);
+    sx = std(x);
+    sy = std(y);
+    
+    %restar a x yy sus medias
+    x0 = x - mx;    
+    y0 = y - my;
+
+    % dividir por sus desviaciones
+    x1 = x0 / sx;     
+    y1 = y0 / sy;
+
+    xy_n = [x1; y1];
+    
+    T = [ 1/sx,    0,   -mx/sx;
+        0,    1/sy,  -my/sy;
+        0,      0,      1   ];
+end
+
+[xy_n, Txy] = prepara(xy);
+disp('Matriz de normalización Txy:');
+disp(Txy);
+
+[uv_n, Tuv] = prepara(uv);
+disp('Matriz de normalización Tuv:');
+disp(Tuv);
+
+%------------------------------------------
+
 TT = get_afin(uv, xy);
 disp('La matriz de transformacion inversa TT es:');
 disp(TT);
@@ -283,3 +317,179 @@ title('Panorama de Partida');
 subplot(1,2,2);
 imshow(destino);
 title('Resultado Final');
+
+% ------------------------------------------------------------
+% Parte 3
+disp('------------------------ Parte 3 ------------------------')
+disp('Seam Carving')
+
+im = im2double(imread('img.jpg'));
+[Ny,Nx,~] = size(im);
+
+% Energia
+function E = energia(im)
+    filtrog    = fspecial('gaussian',[7 7],1.51);
+    w_gauss  = imfilter(im, filtrog,'symmetric');
+    dif = abs(im - w_gauss);
+    E    = 0.30*dif(:,:,1) + 0.55*dif(:,:,2) + 0.15*dif(:,:,3);
+end
+
+E0      = energia(im);                          
+E_mean  = mean(E0(:));
+E_max   = max(E0(:));
+fprintf('Media(E)  = %.4f\n',E_mean);
+fprintf('Máx(E)    = %.4f\n',E_max);
+
+figure;
+imagesc(E0), axis image
+colormap('hot'), colorbar('vert')
+title('Mapa de energía E')
+truesize
+
+Nx_convertida = round(Ny*3/2);              
+n_fuera  = Nx - Nx_convertida;               
+fprintf('Quitamos %d columnas (%dx%d  →  %dx%d)\n',...
+        n_fuera,Nx,Ny,Nx_convertida,Ny);
+
+% Calcula_M
+function M = calcula_M(E)
+    [Ny,Nx] = size(E);
+    M = Inf*E;              
+    M(1,2:Nx-1) = E(1,2:Nx-1);        
+
+    for i = 2:Ny
+        for j = 2:Nx-1
+            M(i,j) = E(i,j) + min([M(i-1,j-1), M(i-1,j), M(i-1,j+1)]);
+        end
+    end
+end
+
+% los 3x4 valores de M en la esquina inferiorr derecha
+M0        = calcula_M(E0);                    
+esq      = M0(end-2:end , end-3:end);        % 3 últimas filas × 4 últimas columnas
+fprintf('\nM 3×4 última esquina:\n');
+for r = 1:3
+    fprintf('%10.4f  %10.4f  %10.4f  %10.4f\n', esq(r,:));
+end
+
+figure, imagesc(M0), axis image
+colormap('jet'), colorbar('vert')
+title('Matriz acumulada M (paleta jet)')
+truesize
+
+figure
+plot(1:size(M0,2), M0(end,:),'LineWidth', 1.3)
+title('Energía acumulada en la última fila de M')
+xlabel('columna'); ylabel('M(ALT0, :)')
+
+%find_seam
+function J = find_seam(M)
+    [Ny,Nx] = size(M);
+    J = zeros(Ny,1);                 
+    [~,J(Ny)] = min(M(Ny,:)); % J(ALT0)=col_final      
+    
+    %retrcedemos fila a fila
+    for i = Ny-1:-1:1
+        prev   = J(i+1);
+        cols   = prev-1 : prev+1; %indice solo +-1 columnas
+        cols   = cols(cols>=1 & cols<=Nx);
+        [~,k]  = min(M(i,cols));
+        J(i)   = cols(k);
+    end
+end
+
+J = find_seam(M0);
+figure;
+imshow(im), hold on
+plot(J, 1:Ny, 'g', 'LineWidth',1.3)
+title('Costura mínima superpuesta (verde)')
+
+rows = (1:Ny).';                      
+cols = J;                             
+idx  = sub2ind(size(E0), rows, cols); 
+acum = sum(E0(idx));       %energía acumulada
+fprintf('\nCostura – 1er punto: (fila 1 , col %d)\n', J(1));
+fprintf('Costura – último punto: (fila %d , col %d)\n', Ny, J(end));
+fprintf('Energía acumulada = %.4f\n', acum);
+
+% borrar 1 costura
+function im2 = remove_seam(im, J)
+
+    [Ny, Nx, Ch] = size(im);
+    im2 = zeros(Ny, Nx-1, Ch);
+
+    for i = 1:Ny                    % recorremos filas
+        cols = [1:J(i)-1 , J(i)+1:Nx];   % columnas que se mantienen
+        for c = 1:Ch              
+            im2(i,:,c) = im(i, cols, c);
+        end
+    end
+end
+
+Nx_ = 972;
+n_remove = Nx - Nx_;
+
+im_1 = im;                             
+for k = 1:n_remove
+    E = energia(im_1);                 
+    M = calcula_M(E);                   
+    J = find_seam(M);                   
+    im_1 = remove_seam(im_1,J);       
+end
+
+im_2 = imresize(im,[Ny Nx_]);
+
+escala   = Nx_ / size(im,2);   
+im_3  = imresize(im, escala); 
+faltan   = Ny - size(im_3,1);      % filas que faltan
+pad_arr  = floor(faltan/2);                % mitad arriba
+pad_aba  = faltan - pad_arr;               % mitad abajo
+
+im_bands = padarray(im_3,[pad_arr 0],0,'pre');   % negro arriba
+im_bands = padarray(im_bands,[pad_aba 0],0,'post'); % negro abajo
+
+montaje = [im_1 ; im_2 ; im_3]; 
+figure, imshow(montaje)
+title('1) Seam–carving   |   2) imresize   |   3) bandas negras')
+
+
+%horizontal
+Ny__ = round(Nx/2);
+n_remove = Ny - Ny__;
+fprintf('Eliminar %d filas (%dx%d → %dx%d) para 2:1\n\n',...
+        n_remove, Ny, Nx, Ny__, Nx);
+
+% primera costura horizontal verde
+imT   = permute(im,[2 1 3]);            % transponer 
+E0T   = energia(imT);                 
+M0T   = calcula_M(E0T);            
+Jt    = find_seam(M0T);              
+
+figure, imshow(im), hold on
+plot(1:Nx, Jt, 'g', 'LineWidth',1.3)
+title('1ª costura horizontal (verde)')
+
+% coordenadas y energía 
+fprintf('Primer punto: (fila %d, col 1)\n', Jt(1));
+fprintf('Último punto : (fila %d, col %d)\n', Jt(end), Nx);
+acum = sum( E0T(sub2ind(size(E0T),(1:Nx).', Jt)) );
+fprintf('Energía acumulada = %.4f\n\n', acum);
+
+% eliminar costuras horizontales
+im_h = im;
+for k = 1:n_remove
+    imT = permute(im_h,[2 1 3]);
+    E   = energia(imT);
+    M   = calcula_M(E);
+    Jt  = find_seam(M);
+    imT = remove_seam(imT, Jt);
+    im_h = permute(imT,[2 1 3]);
+end
+
+im_resize_h = imresize(im,[Ny__ Nx]);
+
+figure
+subplot(1,2,1), imshow(im_h)
+title(sprintf('Seam-horizontal (%dx%d)',size(im_h,1),size(im_h,2)))
+subplot(1,2,2), imshow(im_resize_h)
+title(sprintf('imresize       (%dx%d)',size(im_resize_h,1),size(im_resize_h,2)))
